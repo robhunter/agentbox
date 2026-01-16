@@ -1,0 +1,21 @@
+# AgentBox Plus - Custom layer with Rust and chainlink
+# Build: docker build -f Dockerfile.plus -t agentbox-plus:latest .
+# Use:   AGENTBOX_IMAGE=agentbox-plus:latest agentbox
+
+FROM agentbox:latest
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    echo 'source "$HOME/.cargo/env"' >> ~/.bashrc && \
+    echo 'source "$HOME/.cargo/env"' >> ~/.zshrc
+
+# Build and install chainlink (Rust project is in chainlink/ subdirectory)
+RUN . "$HOME/.cargo/env" && \
+    git clone https://github.com/dollspace-gay/chainlink.git /tmp/chainlink && \
+    cd /tmp/chainlink/chainlink && \
+    cargo build --release && \
+    cp target/release/chainlink ~/.local/bin/ && \
+    rm -rf /tmp/chainlink
+
+# Verify installation
+RUN ~/.local/bin/chainlink --help | head -5

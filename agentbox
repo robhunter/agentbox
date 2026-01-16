@@ -21,7 +21,7 @@ readonly PROJECT_DIR="$(pwd)"
 readonly PROJECT_NAME="$(basename "$PROJECT_DIR")"
 readonly DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
 readonly ENTRYPOINT_PATH="${SCRIPT_DIR}/entrypoint.sh"
-readonly IMAGE_NAME="agentbox:latest"
+readonly IMAGE_NAME="${AGENTBOX_IMAGE:-agentbox:latest}"
 readonly CONTAINER_PREFIX="agentbox"
 
 # Colors for output
@@ -457,6 +457,7 @@ Examples:
     agentbox --rebuild                  # Force rebuild image
     agentbox ssh-init                   # Set up SSH for AgentBox
     AGENTBOX_TOOL=opencode agentbox     # Use env var to select tool
+    AGENTBOX_IMAGE=myimage:latest agentbox  # Use custom image
 
 Containers are ephemeral and automatically removed when you exit.
 Package caches and shell history persist between sessions.
@@ -603,8 +604,15 @@ main() {
         exit 1
     fi
 
-    # Check if rebuild is needed or forced
-    if [[ "$force_rebuild" == "true" ]] || needs_rebuild; then
+    # Skip rebuild logic for custom images (user manages their own image)
+    if [[ -n "${AGENTBOX_IMAGE:-}" ]]; then
+        if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
+            log_error "Custom image not found: $IMAGE_NAME"
+            log_info "Build it first, or unset AGENTBOX_IMAGE to use the default"
+            exit 1
+        fi
+        log_info "Using custom image: $IMAGE_NAME"
+    elif [[ "$force_rebuild" == "true" ]] || needs_rebuild; then
         if [[ "$force_rebuild" == "true" ]]; then
             log_info "Forcing image rebuild..."
         else
@@ -615,7 +623,6 @@ main() {
             log_error "Build failed!"
             exit 1
         fi
-
     fi
 
     # Run or attach to container
