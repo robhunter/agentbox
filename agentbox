@@ -337,6 +337,13 @@ run_container() {
     # Set tool environment variable
     mount_opts+=(--env "TOOL=$tool")
 
+    # Mount Gemini CLI credentials if they exist (for cross-tool workflows)
+    local gemini_dir="${HOME}/.gemini"
+    if [[ -d "$gemini_dir" ]]; then
+        mount_opts+=(-v "${gemini_dir}:/home/agent/.gemini")
+        log_info "Gemini CLI credentials mounted"
+    fi
+
     # Mount host direnv approvals for translation if project has .envrc
     if [[ -f "$PROJECT_DIR/.envrc" ]]; then
         local host_direnv_allow="${HOME}/.local/share/direnv/allow"
