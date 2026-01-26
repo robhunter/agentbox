@@ -207,6 +207,9 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s stable && \
 RUN curl -fsSL https://opencode.ai/install | bash && \
     zsh -i -c 'which opencode && opencode --version'
 
+RUN bash -c "source $NVM_DIR/nvm.sh && npm install -g @google/gemini-cli && \
+    which gemini && gemini --version"
+
 # Entrypoint
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/zsh"]
