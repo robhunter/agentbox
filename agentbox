@@ -20,8 +20,10 @@ readonly SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 readonly PROJECT_DIR="$(pwd)"
 readonly PROJECT_NAME="$(basename "$PROJECT_DIR")"
 readonly DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
+readonly DOCKERFILE_PLUS_PATH="${SCRIPT_DIR}/Dockerfile.plus"
 readonly ENTRYPOINT_PATH="${SCRIPT_DIR}/entrypoint.sh"
-readonly IMAGE_NAME="${AGENTBOX_IMAGE:-agentbox:latest}"
+readonly BASE_IMAGE_NAME="agentbox:latest"
+readonly IMAGE_NAME="${AGENTBOX_IMAGE:-agentbox-plus:latest}"
 readonly CONTAINER_PREFIX="agentbox"
 
 # Colors for output
@@ -71,59 +73,66 @@ get_container_name() {
 
 # Check if image needs rebuild
 needs_rebuild() {
-    # Calculate current Dockerfile and entrypoint hashes
     local dockerfile_hash=$(calculate_hash "$DOCKERFILE_PATH")
+    local dockerfile_plus_hash=$(calculate_hash "$DOCKERFILE_PLUS_PATH")
     local entrypoint_hash=$(calculate_hash "$ENTRYPOINT_PATH")
-    local combined_hash="${dockerfile_hash}-${entrypoint_hash}"
+    local combined_hash="${dockerfile_hash}-${dockerfile_plus_hash}-${entrypoint_hash}"
 
-    # Check if image exists
     if ! docker image inspect "$IMAGE_NAME" &> /dev/null; then
-        return 0  # Needs rebuild - image doesn't exist
+        return 0
     fi
 
-    # Get stored hash from image
     local stored_hash=$(docker inspect "$IMAGE_NAME" \
         --format '{{ index .Config.Labels "agentbox.hash" }}' 2>/dev/null || echo "none")
 
-    # Compare hashes
     if [[ "$combined_hash" != "$stored_hash" ]]; then
-        return 0  # Needs rebuild
+        return 0
     fi
 
-    return 1  # No rebuild needed
+    return 1
 }
 
-# Build Docker image
+# Build Docker images (base and plus)
 build_image() {
     local dockerfile_hash=$(calculate_hash "$DOCKERFILE_PATH")
+    local dockerfile_plus_hash=$(calculate_hash "$DOCKERFILE_PLUS_PATH")
     local entrypoint_hash=$(calculate_hash "$ENTRYPOINT_PATH")
-    local combined_hash="${dockerfile_hash}-${entrypoint_hash}"
+    local combined_hash="${dockerfile_hash}-${dockerfile_plus_hash}-${entrypoint_hash}"
 
-    log_build "Building AgentBox image (this may take a few minutes on first run)..."
-
-    # Get current user/group IDs
     local user_id=$(id -u)
     local group_id=$(id -g)
-
-    # Build with progress output
     local build_timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-    if docker build \
+
+    log_build "Building base AgentBox image..."
+    if ! docker build \
         --build-arg USER_ID="${user_id}" \
         --build-arg GROUP_ID="${group_id}" \
         --build-arg USERNAME="agent" \
         --build-arg BUILD_TIMESTAMP=${build_timestamp} \
+        --label "agentbox.version=1.0.0" \
+        --label "agentbox.built=${build_timestamp}" \
+        -t "$BASE_IMAGE_NAME" \
+        "$SCRIPT_DIR" ; then
+        log_error "Failed to build base image"
+        return 1
+    fi
+    log_success "Base image built!"
+
+    log_build "Building AgentBox Plus image (with Rust and chainlink)..."
+    if ! docker build \
+        -f "$DOCKERFILE_PLUS_PATH" \
         --label "agentbox.hash=${combined_hash}" \
         --label "agentbox.version=1.0.0" \
         --label "agentbox.built=${build_timestamp}" \
         -t "$IMAGE_NAME" \
         "$SCRIPT_DIR" ; then
-        log_success "Image built successfully!"
-        docker image prune -f --filter "label=agentbox.version" &>/dev/null || true
-        return 0
-    else
-        log_error "Failed to build image"
+        log_error "Failed to build plus image"
         return 1
     fi
+    log_success "Plus image built!"
+
+    docker image prune -f --filter "label=agentbox.version" &>/dev/null || true
+    return 0
 }
 
 expand_tilde() {
@@ -464,7 +473,7 @@ Examples:
     agentbox --rebuild                  # Force rebuild image
     agentbox ssh-init                   # Set up SSH for AgentBox
     AGENTBOX_TOOL=opencode agentbox     # Use env var to select tool
-    AGENTBOX_IMAGE=myimage:latest agentbox  # Use custom image
+    AGENTBOX_IMAGE=agentbox:latest agentbox  # Use base image (no Rust/chainlink)
 
 Containers are ephemeral and automatically removed when you exit.
 Package caches and shell history persist between sessions.
