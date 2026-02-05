@@ -93,7 +93,13 @@ needs_rebuild() {
 }
 
 # Build Docker images (base and plus)
+# Args: [--no-cache] - pass to skip Docker build cache
 build_image() {
+    local no_cache=""
+    if [[ "${1:-}" == "--no-cache" ]]; then
+        no_cache="--no-cache"
+    fi
+
     local dockerfile_hash=$(calculate_hash "$DOCKERFILE_PATH")
     local dockerfile_plus_hash=$(calculate_hash "$DOCKERFILE_PLUS_PATH")
     local entrypoint_hash=$(calculate_hash "$ENTRYPOINT_PATH")
@@ -104,7 +110,7 @@ build_image() {
     local build_timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
     log_build "Building base AgentBox image..."
-    if ! docker build \
+    if ! docker build $no_cache \
         --build-arg USER_ID="${user_id}" \
         --build-arg GROUP_ID="${group_id}" \
         --build-arg USERNAME="agent" \
@@ -119,7 +125,7 @@ build_image() {
     log_success "Base image built!"
 
     log_build "Building AgentBox Plus image (with Rust and chainlink)..."
-    if ! docker build \
+    if ! docker build $no_cache \
         -f "$DOCKERFILE_PLUS_PATH" \
         --label "agentbox.hash=${combined_hash}" \
         --label "agentbox.version=1.0.0" \
@@ -630,12 +636,14 @@ main() {
         log_info "Using custom image: $IMAGE_NAME"
     elif [[ "$force_rebuild" == "true" ]] || needs_rebuild; then
         if [[ "$force_rebuild" == "true" ]]; then
-            log_info "Forcing image rebuild..."
+            log_info "Forcing image rebuild (no cache)..."
+            build_args="--no-cache"
         else
             log_info "Dockerfile or entrypoint changed, rebuilding automatically..."
+            build_args=""
         fi
 
-        if ! build_image; then
+        if ! build_image $build_args; then
             log_error "Build failed!"
             exit 1
         fi
