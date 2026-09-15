@@ -224,6 +224,10 @@ Package manager caches are stored in `~/.cache/agentbox/<container-name>/`:
 ### Shell History
 Zsh history is preserved in `~/.agentbox/projects/<container-name>/history`
 
+### Shared Agent Directory
+
+`~/.agents` is mounted at `/home/agent/.agents` for every tool. It is created on the host if missing. Unlike the tool directories below, this mount does not depend on `--tool`, so it is where cross-harness instructions and tooling belong.
+
 ### Tool Authentication
 
 Tools use bind mounts to share authentication across all AgentBox projects:
