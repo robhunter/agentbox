@@ -346,6 +346,14 @@ run_container() {
         --env "HISTFILE=/home/agent/.shell_history/zsh_history"
     )
 
+    # Shared across every tool: instructions and tooling that are not harness-specific
+    local shared_agents_dir="${HOME}/.agents"
+    mkdir -p "$shared_agents_dir"
+
+    mount_opts+=(
+        -v "${shared_agents_dir}:/home/agent/.agents"
+    )
+
     if [[ "$tool" == "opencode" ]]; then
         local opencode_config_dir="${HOME}/.config/opencode"
         local opencode_auth_dir="${HOME}/.local/share/opencode"
