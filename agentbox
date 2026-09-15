@@ -359,6 +359,16 @@ run_container() {
         )
 
         log_info "OpenCode configuration and auth mounted"
+    elif [[ "$tool" == "codex" ]]; then
+        local codex_dir="${HOME}/.codex"
+
+        mkdir -p "$codex_dir"
+
+        mount_opts+=(
+            -v "${codex_dir}:/home/agent/.codex"
+        )
+
+        log_info "Codex configuration and auth mounted"
     else
         local claude_dir="${HOME}/.claude"
 
@@ -397,6 +407,8 @@ run_container() {
         local tool_cmd
         if [[ "$tool" == "opencode" ]]; then
             tool_cmd="opencode"
+        elif [[ "$tool" == "codex" ]]; then
+            tool_cmd="codex --dangerously-bypass-approvals-and-sandbox"
         else
             tool_cmd="claude --dangerously-skip-permissions"
         fi
@@ -502,7 +514,7 @@ Usage:
 
 Options:
     -h, --help                  Show this help message
-    --tool TOOL                 Choose tool: claude (default) or opencode
+    --tool TOOL                 Choose tool: claude (default), opencode or codex
     -e KEY[=VALUE]              Pass environment variable to container (can be used multiple times)
                                 KEY alone forwards it from the host
     -p PORT                     Forward a port from host to container (can be used multiple times)
@@ -523,6 +535,7 @@ Commands:
 Examples:
     agentbox                              # Start Claude CLI for current project
     agentbox --tool opencode              # Start OpenCode instead of Claude
+    agentbox --tool codex                 # Start Codex instead of Claude
     agentbox -p 3002                      # Forward port 3002
     agentbox -p 3002:8080                 # Map host port 3002 to container port 8080
     agentbox shell                        # Start interactive shell instead of Claude
@@ -675,8 +688,8 @@ main() {
     done
 
     # Validate tool selection
-    if [[ "$tool" != "claude" && "$tool" != "opencode" ]]; then
-        log_error "Invalid tool: $tool (must be 'claude' or 'opencode')"
+    if [[ "$tool" != "claude" && "$tool" != "opencode" && "$tool" != "codex" ]]; then
+        log_error "Invalid tool: $tool (must be 'claude', 'opencode' or 'codex')"
         exit 1
     fi
 
