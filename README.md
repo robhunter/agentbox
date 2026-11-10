@@ -123,6 +123,8 @@ agentbox ssh-init
 
 AgentBox creates ephemeral containers (with `--rm`) that are automatically removed when you exit. However, important data persists between sessions:
 
+Multiple sessions can run in the same directory at once; AgentBox warns when another is already running there.
+
 ```
 Single Dockerfile → Build once → agentbox:latest image
                                          ↓
@@ -215,14 +217,14 @@ Due to [Claude Code bug #6130](https://github.com/anthropics/claude-code/issues/
 ## Data Persistence
 
 ### Package Caches
-Package manager caches are stored in `~/.cache/agentbox/<container-name>/`:
-- npm packages: `~/.cache/agentbox/<container-name>/npm`
-- pip packages: `~/.cache/agentbox/<container-name>/pip`
-- Maven artifacts: `~/.cache/agentbox/<container-name>/maven`
-- Gradle cache: `~/.cache/agentbox/<container-name>/gradle`
+Package manager caches are stored in `~/.cache/agentbox/agentbox-<hash>/`:
+- npm packages: `~/.cache/agentbox/agentbox-<hash>/npm`
+- pip packages: `~/.cache/agentbox/agentbox-<hash>/pip`
+- Maven artifacts: `~/.cache/agentbox/agentbox-<hash>/maven`
+- Gradle cache: `~/.cache/agentbox/agentbox-<hash>/gradle`
 
 ### Shell History
-Zsh history is preserved in `~/.agentbox/projects/<container-name>/history`
+Zsh history is preserved in `~/.agentbox/projects/agentbox-<hash>/history`
 
 ### Shared Agent Directory
 
