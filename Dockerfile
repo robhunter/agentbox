@@ -203,7 +203,8 @@ USER root
 
 # Copy entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY title-prefix.py /usr/local/bin/title-prefix
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/title-prefix
 
 # Set the user for runtime
 USER ${USERNAME}

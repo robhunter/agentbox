@@ -214,6 +214,10 @@ Due to [Claude Code bug #6130](https://github.com/anthropics/claude-code/issues/
 
 2. **Enable all MCP servers by default** by adding `"enableAllProjectMcpServers": true` to your Claude project or user settings.
 
+## Terminal Title
+
+Titles set by the tool are prefixed with the project directory name, e.g. `docs - Fix login bug`.
+
 ## Data Persistence
 
 ### Package Caches

@@ -21,6 +21,7 @@ readonly PROJECT_DIR="$(pwd)"
 readonly PROJECT_NAME="$(basename "$PROJECT_DIR")"
 readonly DOCKERFILE_PATH="${SCRIPT_DIR}/Dockerfile"
 readonly ENTRYPOINT_PATH="${SCRIPT_DIR}/entrypoint.sh"
+readonly TITLE_PREFIX_PATH="${SCRIPT_DIR}/title-prefix.py"
 readonly IMAGE_NAME="agentbox:latest"
 readonly CONTAINER_PREFIX="agentbox"
 
@@ -94,13 +95,14 @@ warn_if_project_in_use() {
     fi
 }
 
+# Hash of every file copied into the image
+calculate_image_hash() {
+    echo "$(calculate_hash "$DOCKERFILE_PATH")-$(calculate_hash "$ENTRYPOINT_PATH")-$(calculate_hash "$TITLE_PREFIX_PATH")"
+}
 
 # Check if image needs rebuild
 needs_rebuild() {
-    # Calculate current Dockerfile and entrypoint hashes
-    local dockerfile_hash=$(calculate_hash "$DOCKERFILE_PATH")
-    local entrypoint_hash=$(calculate_hash "$ENTRYPOINT_PATH")
-    local combined_hash="${dockerfile_hash}-${entrypoint_hash}"
+    local combined_hash=$(calculate_image_hash)
 
     # Check if image exists
     if ! $RUNTIME image inspect "$IMAGE_NAME" &> /dev/null; then
@@ -121,9 +123,7 @@ needs_rebuild() {
 
 # Build Docker image
 build_image() {
-    local dockerfile_hash=$(calculate_hash "$DOCKERFILE_PATH")
-    local entrypoint_hash=$(calculate_hash "$ENTRYPOINT_PATH")
-    local combined_hash="${dockerfile_hash}-${entrypoint_hash}"
+    local combined_hash=$(calculate_image_hash)
 
     log_build "Building AgentBox image (this may take a few minutes on first run)..."
 
@@ -440,7 +440,7 @@ run_container() {
             done
             tool_cmd="$tool_cmd$escaped_args"
         fi
-        container_cmd=(zsh -c "source ~/.zshrc && exec $tool_cmd")
+        container_cmd=(zsh -c "source ~/.zshrc && exec title-prefix $(printf '%q' "$PROJECT_NAME") $tool_cmd")
     fi
 
     local env_file_args=()
@@ -739,7 +739,7 @@ main() {
         if [[ "$force_rebuild" == "true" ]]; then
             log_info "Forcing image rebuild..."
         else
-            log_info "Dockerfile or entrypoint changed, rebuilding automatically..."
+            log_info "Image files changed, rebuilding automatically..."
         fi
 
         if ! build_image; then
