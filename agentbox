@@ -79,10 +79,19 @@ calculate_hash() {
     fi
 }
 
-# Get container name for current project
-get_container_name() {
+# Keys per-project caches and history; shared by all concurrent sessions in the same directory
+get_project_key() {
     local project_hash=$(echo -n "$PROJECT_DIR" | sha256sum | cut -c1-12)
     echo "${CONTAINER_PREFIX}-${project_hash}"
+}
+
+warn_if_project_in_use() {
+    local project_key="$1"
+    local running
+    running=$($RUNTIME ps -q --filter "label=agentbox.project=${project_key}" 2>/dev/null | wc -l)
+    if ((running > 0)); then
+        log_warning "${running} other AgentBox session(s) already running in this directory"
+    fi
 }
 
 
@@ -254,7 +263,7 @@ mount_additional_dirs() {
 
 # Run container with --rm (ephemeral)
 run_container() {
-    local container_name="$1"
+    local project_key="$1"
     local -n extra_dirs_to_mount=$2
     local tool="$3"
     local ignore_dot_env="$4"
@@ -276,12 +285,14 @@ run_container() {
     fi
 
     local cmd_args=("$@")
+    local container_name="${project_key}-$(printf '%04x%04x' $RANDOM $RANDOM)"
 
     if [[ "$admin_mode" == "true" ]]; then
         log_success "Starting container for: $PROJECT_NAME (admin shell)"
     else
         log_success "Starting container for: $PROJECT_NAME"
     fi
+    warn_if_project_in_use "$project_key"
 
     # Prepare mount options - mount project at its real host path
     local mount_opts=(
@@ -325,7 +336,7 @@ run_container() {
     fi
 
     # Mount cache directories for package managers
-    local cache_dir="${HOME}/.cache/agentbox/${container_name}"
+    local cache_dir="${HOME}/.cache/agentbox/${project_key}"
     mkdir -p "${cache_dir}/npm" "${cache_dir}/pip" "${cache_dir}/maven" "${cache_dir}/gradle"
 
     mount_opts+=(
@@ -336,7 +347,7 @@ run_container() {
     )
 
     # Mount per-project persistent data
-    local project_data_dir="${HOME}/.agentbox/projects/${container_name}"
+    local project_data_dir="${HOME}/.agentbox/projects/${project_key}"
     local history_dir="${project_data_dir}/history"
     mkdir -p "${history_dir}"
 
@@ -499,6 +510,7 @@ run_container() {
     # Run ephemeral container with --rm
     $RUNTIME run -it --rm \
         --name "$container_name" \
+        --label "agentbox.project=${project_key}" \
         --hostname "agentbox-$PROJECT_NAME" \
         "${runtime_args[@]}" \
         "${host_args[@]}" \
@@ -705,8 +717,7 @@ main() {
     RUNTIME=$(check_runtime)
     log_info "Using container runtime: $RUNTIME"
 
-    # Get container name for current project
-    local container_name=$(get_container_name)
+    local project_key=$(get_project_key)
 
     # Validate dir paths (batch all errors so user sees all problems at once)
     local project_realpath
@@ -741,12 +752,12 @@ main() {
     # Run or attach to container
     if [[ "$shell_mode" == "true" ]]; then
         if [[ "$admin_mode" == "true" ]]; then
-            run_container "$container_name" validated_dirs "$tool" "$ignore_dot_env" "$docker_mount" env_vars "shell" "--admin" "${cmd_args[@]}"
+            run_container "$project_key" validated_dirs "$tool" "$ignore_dot_env" "$docker_mount" env_vars "shell" "--admin" "${cmd_args[@]}"
         else
-            run_container "$container_name" validated_dirs "$tool" "$ignore_dot_env" "$docker_mount" env_vars "shell" "${cmd_args[@]}"
+            run_container "$project_key" validated_dirs "$tool" "$ignore_dot_env" "$docker_mount" env_vars "shell" "${cmd_args[@]}"
         fi
     else
-        run_container "$container_name" validated_dirs "$tool" "$ignore_dot_env" "$docker_mount" env_vars "${cmd_args[@]}"
+        run_container "$project_key" validated_dirs "$tool" "$ignore_dot_env" "$docker_mount" env_vars "${cmd_args[@]}"
     fi
 }
 

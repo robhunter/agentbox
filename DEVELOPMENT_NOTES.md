@@ -15,7 +15,7 @@ AgentBox is a simplified replacement for ClaudeBox. The user was maintaining pat
 
 1. **Ephemeral Containers**: Containers use `--rm` flag and are destroyed on exit. This differs from ClaudeBox's persistent slot-based containers.
 
-2. **Hash-Based Naming**: Container names use SHA256 hash of project directory path (first 12 chars) to ensure uniqueness and avoid conflicts.
+2. **Hash-Based Naming**: A project key `agentbox-<sha256(project path)[:12]>` names the per-project cache and history directories. Container names append a random suffix to it so several sessions can share a directory; the key is also stored as the `agentbox.project` label, which is used to warn about concurrent sessions.
 
 3. **Bind Over Volume**: Claude CLI and OpenCode use bind mounts to host directories.
 
@@ -135,6 +135,8 @@ The `agentbox` script has these key functions:
 - `detect_runtime()`: Detect available container runtime (Docker or Podman)
 - `check_runtime()`: Verify a container runtime is available
 - `calculate_hash()`: SHA256 hash for change detection
+- `get_project_key()`: Per-project key for caches, history and the `agentbox.project` label
+- `warn_if_project_in_use()`: Warn when another session runs in the same directory
 - `needs_rebuild()`: Compare hashes with image label
 - `build_image()`: Docker build with proper args
 - `mount_additional_dirs()`: Mount extra directories with intuitive folder names (e.g., /foo, /bar)
@@ -146,9 +148,9 @@ The `agentbox` script has these key functions:
 
 1. **Never use `-i` flag**: Git commands like `git rebase -i` won't work in non-interactive container context
 
-2. **Path Hashing**: Container names use first 12 chars of SHA256(project_path) - collision risk is negligible
+2. **Path Hashing**: Project keys use first 12 chars of SHA256(project_path) - collision risk is negligible
 
-3. **Container Naming**: `agentbox-<hash>` pattern ensures per-project container isolation (separate caches and history, but shared tool authentication)
+3. **Container Naming**: `agentbox-<hash>-<random>`. Concurrent sessions in one directory share caches and history; different projects get separate ones. Tool authentication is shared by all.
 
 4. **Shell Mode**: When using `shell` command, execution goes through zsh even for bash (ensures environment is loaded)
 
