@@ -24,6 +24,9 @@ readonly ENTRYPOINT_PATH="${SCRIPT_DIR}/entrypoint.sh"
 readonly TITLE_PREFIX_PATH="${SCRIPT_DIR}/title-prefix.py"
 readonly IMAGE_NAME="agentbox:latest"
 readonly CONTAINER_PREFIX="agentbox"
+readonly LOCAL_MODEL_URL="${AGENTBOX_LOCAL_MODEL_URL:-http://host.docker.internal:11434}"
+readonly RELAY_IMAGE="nginx:alpine"
+readonly RELAY_PORT=11434
 
 # Set by check_runtime() in main()
 RUNTIME=""
@@ -261,6 +264,51 @@ mount_additional_dirs() {
     done
 }
 
+# Only inference endpoints pass; everything else the model server offers (e.g. model downloads) is refused
+model_relay_config() {
+    local upstream="$1"
+    local location
+    echo "server {"
+    echo "    listen ${RELAY_PORT};"
+    echo "    client_max_body_size 50m;"
+    echo "    proxy_read_timeout 600s;"
+    echo "    proxy_buffering off;"
+    for location in /v1/messages /v1/messages/count_tokens /v1/chat/completions /v1/responses; do
+        echo "    location = ${location} { limit_except POST { deny all; } proxy_pass ${upstream}; }"
+    done
+    echo "    location / { return 403 \"blocked by agentbox relay\\n\"; }"
+    echo "}"
+}
+
+# Creates an internal (no egress) network whose only way out is a relay container to the local model
+# server. Network and relay share one name, which is also the relay's hostname inside the network.
+start_model_relay() {
+    local network="$1"
+
+    trap "stop_model_relay '${network}'" EXIT
+    trap 'exit 129' HUP
+    trap 'exit 143' TERM
+
+    $RUNTIME network create --internal --label "agentbox.relay=${network}" "$network" >/dev/null
+    if ! $RUNTIME run -d --rm \
+        --name "$network" \
+        --label "agentbox.relay=${network}" \
+        --add-host host.docker.internal:host-gateway \
+        --env "AGENTBOX_RELAY_CONFIG=$(model_relay_config "$LOCAL_MODEL_URL")" \
+        "$RELAY_IMAGE" \
+        sh -c 'printf "%s\n" "$AGENTBOX_RELAY_CONFIG" > /etc/nginx/conf.d/default.conf && exec nginx -g "daemon off;"' >/dev/null; then
+        log_error "Failed to start model relay"
+        exit 1
+    fi
+    $RUNTIME network connect "$network" "$network"
+}
+
+stop_model_relay() {
+    local network="$1"
+    $RUNTIME rm -f "$network" &>/dev/null || true
+    $RUNTIME network rm "$network" &>/dev/null || true
+}
+
 # Run container with --rm (ephemeral)
 run_container() {
     local project_key="$1"
@@ -309,7 +357,9 @@ run_container() {
 
     # Mount dedicated AgentBox SSH directory
     local agentbox_ssh="${HOME}/.agentbox/ssh"
-    if [[ -d "${agentbox_ssh}" ]]; then
+    if [[ "$isolated" == "true" ]]; then
+        log_info "SSH directory not mounted (--isolated)"
+    elif [[ -d "${agentbox_ssh}" ]]; then
         mount_opts+=(-v "${agentbox_ssh}:/home/agent/.ssh:rw")
         log_info "AgentBox SSH directory mounted (read-write)"
     else
@@ -361,13 +411,22 @@ run_container() {
     local shared_agents_dir="${HOME}/.agents"
     mkdir -p "$shared_agents_dir"
 
+    # Isolated sessions must not write where networked sessions would pick the changes up
+    local shared_agents_mode="rw"
+    local config_home="$HOME"
+    if [[ "$isolated" == "true" ]]; then
+        shared_agents_mode="ro"
+        config_home="${HOME}/.agentbox/isolated"
+        log_info "Isolated: ~/.agents read-only, tool configuration from ${config_home}"
+    fi
+
     mount_opts+=(
-        -v "${shared_agents_dir}:/home/agent/.agents"
+        -v "${shared_agents_dir}:/home/agent/.agents:${shared_agents_mode}"
     )
 
     if [[ "$tool" == "opencode" ]]; then
-        local opencode_config_dir="${HOME}/.config/opencode"
-        local opencode_auth_dir="${HOME}/.local/share/opencode"
+        local opencode_config_dir="${config_home}/.config/opencode"
+        local opencode_auth_dir="${config_home}/.local/share/opencode"
 
         mkdir -p "$opencode_config_dir"
         mkdir -p "$opencode_auth_dir"
@@ -379,7 +438,7 @@ run_container() {
 
         log_info "OpenCode configuration and auth mounted"
     elif [[ "$tool" == "codex" ]]; then
-        local codex_dir="${HOME}/.codex"
+        local codex_dir="${config_home}/.codex"
 
         mkdir -p "$codex_dir"
 
@@ -389,7 +448,7 @@ run_container() {
 
         log_info "Codex configuration and auth mounted"
     else
-        local claude_dir="${HOME}/.claude"
+        local claude_dir="${config_home}/.claude"
 
         mkdir -p "$claude_dir"
 
@@ -403,6 +462,57 @@ run_container() {
 
     # Set tool environment variable
     mount_opts+=(--env "TOOL=$tool")
+
+    local network_args=()
+    local model_url="$LOCAL_MODEL_URL"
+    if [[ "$isolated" == "true" ]]; then
+        if [[ -n "$local_model" ]]; then
+            local network="${container_name}-isolated"
+            start_model_relay "$network"
+            network_args+=(--network "$network")
+            model_url="http://${network}:${RELAY_PORT}"
+            log_info "Isolated: network access limited to the model server at ${LOCAL_MODEL_URL}"
+        else
+            network_args+=(--network none)
+            log_info "Isolated: no network access"
+        fi
+        mount_opts+=(--env "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1")
+
+        if [[ -f "$PROJECT_DIR/.env" ]]; then
+            local empty_file="${HOME}/.agentbox/isolated/empty"
+            mkdir -p "$(dirname "$empty_file")"
+            : > "$empty_file"
+            mount_opts+=(-v "${empty_file}:${PROJECT_DIR}/.env:ro")
+            log_info "Isolated: project .env hidden"
+        fi
+    fi
+
+    local local_model_args=()
+    if [[ -n "$local_model" ]]; then
+        log_info "Local model: ${local_model} via ${model_url}"
+        if [[ "$isolated" != "true" ]]; then
+            # Docker Desktop provides host.docker.internal; native Linux Docker needs it mapped
+            network_args+=(--add-host host.docker.internal:host-gateway)
+        fi
+        if [[ "$tool" == "opencode" ]]; then
+            mount_opts+=(--env "OPENCODE_CONFIG_CONTENT={\"provider\":{\"local\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"Local\",\"options\":{\"baseURL\":\"${model_url}/v1\"},\"models\":{\"${local_model}\":{\"name\":\"${local_model}\",\"tools\":true}}}},\"model\":\"local/${local_model}\"}")
+        elif [[ "$tool" == "codex" ]]; then
+            local_model_args=(
+                -c model_provider=local
+                -c "model_providers.local={name=\"Local\",base_url=\"${model_url}/v1\",wire_api=\"responses\"}"
+                -m "$local_model"
+            )
+        else
+            mount_opts+=(
+                --env "ANTHROPIC_BASE_URL=${model_url}"
+                --env "ANTHROPIC_AUTH_TOKEN=local"
+                --env "ANTHROPIC_MODEL=${local_model}"
+                --env "ANTHROPIC_DEFAULT_OPUS_MODEL=${local_model}"
+                --env "ANTHROPIC_DEFAULT_SONNET_MODEL=${local_model}"
+                --env "ANTHROPIC_DEFAULT_HAIKU_MODEL=${local_model}"
+            )
+        fi
+    fi
 
     # Mount host direnv approvals for translation if project has .envrc
     if [[ -f "$PROJECT_DIR/.envrc" ]]; then
@@ -432,10 +542,10 @@ run_container() {
             tool_cmd="claude --dangerously-skip-permissions"
         fi
 
-        if [[ ${#cmd_args[@]} -gt 0 ]]; then
+        if [[ ${#local_model_args[@]} -gt 0 || ${#cmd_args[@]} -gt 0 ]]; then
             # Properly escape each argument to preserve quoting
             local escaped_args=""
-            for arg in "${cmd_args[@]}"; do
+            for arg in "${local_model_args[@]}" "${cmd_args[@]}"; do
                 escaped_args+=" $(printf '%q' "$arg")"
             done
             tool_cmd="$tool_cmd$escaped_args"
@@ -444,8 +554,10 @@ run_container() {
     fi
 
     local env_file_args=()
-    if [[ "$ignore_dot_env" != "true" ]]; then
-        local agentbox_env="${HOME}/.agentbox/.env"
+    local agentbox_env="${HOME}/.agentbox/.env"
+    if [[ "$isolated" == "true" ]]; then
+        log_info ".env files not loaded (--isolated)"
+    elif [[ "$ignore_dot_env" != "true" ]]; then
         if [[ -f "$agentbox_env" ]]; then
             env_file_args+=(--env-file "$agentbox_env")
             log_info "Global .env loaded from ~/.agentbox/.env"
@@ -515,6 +627,7 @@ run_container() {
         "${runtime_args[@]}" \
         "${host_args[@]}" \
         "${port_args[@]}" \
+        "${network_args[@]}" \
         "${mount_opts[@]}" \
         "${env_file_args[@]}" \
         "${pass_env_args[@]}" \
@@ -542,6 +655,9 @@ Options:
     --add-dir DIR               Mount additional directory (can be used multiple times)
     --ignore-dot-env            Do not load .env files as environment variables (still mounted)
     --dangerously-mount-docker  Mount Docker socket (requires Docker Desktop)
+    --local-model MODEL         Use MODEL from a local server (Ollama by default) instead of the hosted API
+    --isolated                  Cut network access except to the --local-model server; no .env, SSH keys
+                                or shared tool configuration (separate config in ~/.agentbox/isolated)
 
 Commands:
     shell [--admin]             Start interactive shell instead of Claude CLI
@@ -566,6 +682,10 @@ Examples:
     agentbox --rebuild                    # Force rebuild image
     agentbox ssh-init                     # Set up SSH for AgentBox
     AGENTBOX_TOOL=opencode agentbox       # Use env var to select tool
+    agentbox --local-model gemma4:26b --isolated   # Local model, no other network access
+
+Host environment variables:
+    AGENTBOX_LOCAL_MODEL_URL  Local model server base URL (default: http://host.docker.internal:11434)
 
 Environment variables (set in ~/.agentbox/.env):
     AGENTBOX_EXTRA_HOSTS    Comma-separated host:ip pairs added to container /etc/hosts
@@ -629,6 +749,8 @@ main() {
     local env_vars=()
     local tool="${AGENTBOX_TOOL:-claude}"
     local ignore_dot_env=false
+    local local_model=""
+    local isolated=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -684,6 +806,19 @@ main() {
                 ignore_dot_env=true
                 shift
                 ;;
+            --local-model)
+                shift
+                if [[ -z "${1:-}" ]]; then
+                    log_error "--local-model requires a model name"
+                    exit 1
+                fi
+                local_model="$1"
+                shift
+                ;;
+            --isolated)
+                isolated=true
+                shift
+                ;;
             shell)
                 shell_mode=true
                 shift
@@ -711,6 +846,17 @@ main() {
     if [[ "$tool" != "claude" && "$tool" != "opencode" && "$tool" != "codex" ]]; then
         log_error "Invalid tool: $tool (must be 'claude', 'opencode' or 'codex')"
         exit 1
+    fi
+
+    if [[ "$isolated" == "true" ]]; then
+        if [[ "$docker_mount" == "true" ]]; then
+            log_error "--isolated cannot be combined with --dangerously-mount-docker"
+            exit 1
+        fi
+        if [[ ${#ports[@]} -gt 0 ]]; then
+            log_error "--isolated cannot be combined with -p (there is no network to forward into)"
+            exit 1
+        fi
     fi
 
     # Check runtime
