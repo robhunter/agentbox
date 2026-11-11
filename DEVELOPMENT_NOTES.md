@@ -21,7 +21,9 @@ AgentBox is a simplified replacement for ClaudeBox. The user was maintaining pat
 
 4. **SSH Implementation**: Currently mounts `~/.agentbox/ssh/` directory directly (not true SSH agent forwarding). Future improvement could use Docker's `--ssh` flag for better security.
 
-5. **UID/GID Handling**: Dockerfile builds with host user's UID/GID passed as build args to minimize permission issues, but some remain (see ZSH history issue).
+5. **Isolated Sessions**: `--isolated` puts the container on a per-session `--internal` network whose only other member is an nginx relay container, also on the default network, that forwards inference endpoints to the local model server. Enforcement sits outside the agent container because the agent has sudo. Network and relay share the name `<container>-isolated` and are removed by an EXIT trap when the session ends. Without `--local-model`, `--network none` is used instead.
+
+6. **UID/GID Handling**: Dockerfile builds with host user's UID/GID passed as build args to minimize permission issues, but some remain (see ZSH history issue).
 
 ## Implementation Details
 
@@ -89,6 +91,8 @@ $PROJECT_DIR            # Project directory (mounted at full host path)
 /home/agent/.local/share/opencode  # OpenCode auth
 ```
 
+With `--isolated`: no SSH directory, `~/.agents` read-only, tool config directories come from `~/.agentbox/isolated/` (same layout as `$HOME`), and an empty file is mounted over `$PROJECT_DIR/.env`.
+
 ## Testing Status
 - Basic functionality verified (help command, shell mode)
 - Full Docker build/run cycle needs real environment testing
@@ -141,6 +145,8 @@ The `agentbox` script has these key functions:
 - `build_image()`: Docker build with proper args
 - `mount_additional_dirs()`: Mount extra directories with intuitive folder names (e.g., /foo, /bar)
 - `validate_dir_path()`: Validate directory paths (traversal check, system dirs, existence, duplicates)
+- `model_relay_config()`: nginx config allowing only inference endpoints
+- `start_model_relay()` / `stop_model_relay()`: Per-session internal network and relay for `--isolated --local-model`
 - `run_container()`: Main container execution logic with all mounts and command execution
 - `ssh_setup()`: Initialize ~/.agentbox/ssh/ directory
 

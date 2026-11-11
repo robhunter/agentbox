@@ -81,6 +81,20 @@ agentbox --dangerously-mount-docker
 > [!NOTE]
 > The `--dangerously-mount-docker` flag is not supported with Podman.
 
+## Local Models and Isolation
+
+`--local-model MODEL` points the tool at a model on a local server instead of the hosted API. The server defaults to Ollama on the host (`AGENTBOX_LOCAL_MODEL_URL`, default `http://host.docker.internal:11434`) and must serve the Anthropic Messages (Claude), OpenAI Responses (Codex) and OpenAI Chat Completions (OpenCode) APIs; Ollama does.
+
+`--isolated` guards against accidental leaks when running a model you don't trust to behave:
+- No network access, except inference requests to the `--local-model` server, which go through a per-session relay container (`nginx:alpine`) that refuses all other server endpoints, such as model downloads. Without `--local-model` there is no network at all, so hosted models cannot be used.
+- No `.env` files or SSH keys; the project's `.env` appears empty. Explicit `-e` variables are still passed.
+- `~/.agents` is read-only and tool configuration comes from `~/.agentbox/isolated/` instead of `~/.claude`, `~/.codex` or `~/.config/opencode`, so nothing the session writes is picked up by networked sessions. The project directory stays writable.
+- Cannot be combined with `-p` or `--dangerously-mount-docker`.
+
+```bash
+agentbox --local-model gemma4:26b --isolated
+```
+
 ## Helpful Commands
 
 ```bash
