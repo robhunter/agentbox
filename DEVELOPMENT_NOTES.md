@@ -29,10 +29,11 @@ AgentBox is a simplified replacement for ClaudeBox. The user was maintaining pat
 - `Dockerfile`: Multi-stage build with all language toolchains. Uses `USER agent` (UID 1000)
 - `entrypoint.sh`: Minimal - only sets PATH and creates Python venvs
 - `agentbox`: Main logic - rebuild detection, container lifecycle, mount management
+- `title-prefix.py`: Runs the tool in a pseudo-terminal and prefixes the terminal titles it sets with the project directory name, so sessions are distinguishable in the host's tab list. Bypassed when stdin/stdout is not a TTY. Not used in `shell` mode.
 
 ### Rebuild Detection
 Automatic rebuilds are triggered by:
-1. **File changes**: SHA256 hash of Dockerfile + entrypoint.sh stored as Docker image label. Compares on each run.
+1. **File changes**: SHA256 hash of Dockerfile + entrypoint.sh + title-prefix.py stored as Docker image label. Compares on each run.
 2. **Time-based**: If image is older than 48 hours, rebuild automatically to get latest tool versions (Claude Code/OpenCode).
 
 This ensures tools stay updated without manual intervention or version checking overhead.
@@ -157,7 +158,7 @@ The `agentbox` script has these key functions:
 5. **Admin Mode**: `--admin` flag doesn't actually grant sudo (would need Dockerfile changes) - currently just shows a message
 
 ## File Count
-- Core files: 3 (Dockerfile, entrypoint.sh, agentbox)
+- Core files: 4 (Dockerfile, entrypoint.sh, title-prefix.py, agentbox)
 - Documentation: 2 (README.md, DEVELOPMENT_NOTES.md)
 - Other: .gitignore, LICENSE, CLAUDE.md
 - Total: ~8 files (vs ClaudeBox's 20+)
