@@ -495,7 +495,7 @@ run_container() {
             network_args+=(--add-host host.docker.internal:host-gateway)
         fi
         if [[ "$tool" == "opencode" ]]; then
-            mount_opts+=(--env "OPENCODE_CONFIG_CONTENT={\"provider\":{\"local\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"Local\",\"options\":{\"baseURL\":\"${model_url}/v1\"},\"models\":{\"${local_model}\":{\"name\":\"${local_model}\",\"tools\":true}}}},\"model\":\"local/${local_model}\"}")
+            mount_opts+=(--env "OPENCODE_CONFIG_CONTENT={\"provider\":{\"local\":{\"npm\":\"@ai-sdk/openai-compatible\",\"name\":\"Local\",\"options\":{\"baseURL\":\"${model_url}/v1\"},\"models\":{\"${local_model}\":{\"name\":\"${local_model}\",\"tools\":true,\"attachment\":true,\"modalities\":{\"input\":[\"text\",\"image\"],\"output\":[\"text\"]}}}}},\"model\":\"local/${local_model}\"}")
         elif [[ "$tool" == "codex" ]]; then
             local_model_args=(
                 -c model_provider=local
@@ -506,6 +506,7 @@ run_container() {
             mount_opts+=(
                 --env "ANTHROPIC_BASE_URL=${model_url}"
                 --env "ANTHROPIC_AUTH_TOKEN=local"
+                --env "ANTHROPIC_API_KEY="
                 --env "ANTHROPIC_MODEL=${local_model}"
                 --env "ANTHROPIC_DEFAULT_OPUS_MODEL=${local_model}"
                 --env "ANTHROPIC_DEFAULT_SONNET_MODEL=${local_model}"

@@ -83,7 +83,7 @@ agentbox --dangerously-mount-docker
 
 ## Local Models and Isolation
 
-`--local-model MODEL` points the tool at a model on a local server instead of the hosted API. The server defaults to Ollama on the host (`AGENTBOX_LOCAL_MODEL_URL`, default `http://host.docker.internal:11434`) and must serve the Anthropic Messages (Claude), OpenAI Responses (Codex) and OpenAI Chat Completions (OpenCode) APIs; Ollama does.
+`--local-model MODEL` points the tool at a model on a local server instead of the hosted API. The server defaults to Ollama on the host (`AGENTBOX_LOCAL_MODEL_URL`, default `http://host.docker.internal:11434`) and must serve the Anthropic Messages (Claude), OpenAI Responses (Codex) and OpenAI Chat Completions (OpenCode) APIs; Ollama does. `ANTHROPIC_API_KEY` is cleared so a hosted key is never sent to the local server. OpenCode is told the model accepts images; text-only models return an error when given one.
 
 `--isolated` guards against accidental leaks when running a model you don't trust to behave:
 - No network access, except inference requests to the `--local-model` server, which go through a per-session relay container (`nginx:alpine`) that refuses all other server endpoints, such as model downloads. Without `--local-model` there is no network at all, so hosted models cannot be used.
