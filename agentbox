@@ -444,8 +444,8 @@ run_container() {
     fi
 
     local env_file_args=()
+    local agentbox_env="${HOME}/.agentbox/.env"
     if [[ "$ignore_dot_env" != "true" ]]; then
-        local agentbox_env="${HOME}/.agentbox/.env"
         if [[ -f "$agentbox_env" ]]; then
             env_file_args+=(--env-file "$agentbox_env")
             log_info "Global .env loaded from ~/.agentbox/.env"
