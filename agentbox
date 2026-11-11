@@ -501,6 +501,12 @@ run_container() {
         fi
     done
 
+    local network_args=()
+    if [[ -n "$network" ]]; then
+        network_args+=(--network "$network")
+        log_info "Network mode: ${network}"
+    fi
+
     # Build runtime-specific arguments
     local runtime_args=()
     if [[ "$RUNTIME" == "podman" ]]; then
@@ -515,6 +521,7 @@ run_container() {
         "${runtime_args[@]}" \
         "${host_args[@]}" \
         "${port_args[@]}" \
+        "${network_args[@]}" \
         "${mount_opts[@]}" \
         "${env_file_args[@]}" \
         "${pass_env_args[@]}" \
@@ -538,6 +545,8 @@ Options:
     -e KEY[=VALUE]              Pass environment variable to container (can be used multiple times)
                                 KEY alone forwards it from the host
     -p PORT                     Forward a port from host to container (can be used multiple times)
+    --network MODE              Container network mode, e.g. none to disable networking
+                                (the agent tool cannot reach its API with none; use with shell or commands)
     --rebuild                   Force rebuild of the image
     --add-dir DIR               Mount additional directory (can be used multiple times)
     --ignore-dot-env            Do not load .env files as environment variables (still mounted)
@@ -558,6 +567,7 @@ Examples:
     agentbox --tool codex                 # Start Codex instead of Claude
     agentbox -p 3002                      # Forward port 3002
     agentbox -p 3002:8080                 # Map host port 3002 to container port 8080
+    agentbox --network none shell         # Shell with no network access
     agentbox shell                        # Start interactive shell instead of Claude
     agentbox shell --admin                # Start admin shell with sudo access
     agentbox --add-dir ~/1 --add-dir ~/2  # Add dirs with Claude CLI
@@ -625,6 +635,7 @@ main() {
     local docker_mount=false
     local cmd_args=()
     declare -a ports=()
+    local network=""
     local extra_dirs=()
     local env_vars=()
     local tool="${AGENTBOX_TOOL:-claude}"
@@ -651,6 +662,15 @@ main() {
                     exit 1
                 fi
                 ports+=("$1")
+                shift
+                ;;
+            --network)
+                shift
+                if [[ -z "${1:-}" ]]; then
+                    log_error "--network requires a value (e.g. none)"
+                    exit 1
+                fi
+                network="$1"
                 shift
                 ;;
             -e)

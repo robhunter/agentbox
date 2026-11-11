@@ -109,6 +109,10 @@ agentbox --add-dir ~/proj1 --add-dir ~/proj2
 # Enable Docker commands inside container
 agentbox --dangerously-mount-docker
 
+# Disable networking (any runtime network mode is accepted). The agent tool needs
+# network access for its API, so this suits shell and one-off commands.
+agentbox --network none shell
+
 # Start shell with sudo privileges
 agentbox shell --admin
 
